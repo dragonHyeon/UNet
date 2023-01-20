@@ -83,15 +83,14 @@ def run_program(args):
     from Common import ConstVar
     from DeepLearning.test import Tester
     from DeepLearning.dataloader import CXRDataset
-    from DeepLearning.model import FCNs, VGGNet
+    from DeepLearning.model import UNet
     from DeepLearning.metric import mIoU
 
     # GPU / CPU 설정
     device = ConstVar.DEVICE_CUDA if torch.cuda.is_available() else ConstVar.DEVICE_CPU
 
     # 모델 선언
-    model = FCNs(pretrained_net=VGGNet(pretrained=True),
-                 num_classes=ConstVar.NUM_CLASSES)
+    model = UNet()
     # 모델을 해당 디바이스로 이동
     model.to(device)
 

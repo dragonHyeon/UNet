@@ -1,115 +1,177 @@
+import torch
 import torch.nn as nn
-from torchvision.models import vgg16
-
-# VGG-16 Max pooling 단위로 자르기
-ranges = {'vgg16': ((0, 5), (5, 10), (10, 17), (17, 24), (24, 31))}
 
 
-class VGGNet(nn.Module):
-    def __init__(self, pretrained=True):
+class UNet(nn.Module):
+    def __init__(self):
         """
         * 모델 구조 정의
-        * FCNs 의 backbone 네트워크로 사용될 네트워크 (VGG-16)
-        :param pretrained: 미리 학습된 가중치 불러오기 여부
         """
 
-        super(VGGNet, self).__init__()
+        super(UNet, self).__init__()
 
-        # VGG-16 Max pooling 단위로 자르기 위한 준비
-        self.ranges = ranges['vgg16']
+        def CBR2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=True):
+            """
+            * (Conv + BatchNorm + ReLu) 블록
+            """
 
-        # (N, 3, 224, 224) -> (N, 512, 7, 7)
-        self.features = vgg16(pretrained=pretrained).features
+            # CBR 블록 담을 리스트
+            layers = []
 
-    def forward(self, x):
-        """
-        * 순전파
-        :param x: 배치 개수 만큼의 입력. (N, 3, 224, 224)
-        :return: Max pooling 단위 결과 모음 dict
-        """
+            layers += [nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)]
+            layers += [nn.BatchNorm2d(num_features=out_channels)]
+            layers += [nn.ReLU()]
 
-        # Max pooling 단위로 끊어서 결과 담기 위한 dict
-        output = {}
+            cbr = nn.Sequential(*layers)
 
-        # Max pooling 단위로 끊어서 결과 담기
-        for idx in range(len(self.ranges)):
-            for layer in range(self.ranges[idx][0], self.ranges[idx][1]):
-                x = self.features[layer](x)
-            output['x{0}'.format(idx+1)] = x
+            return cbr
 
-        return output
+        # Contracting Path
+        # (N, in_channels (1), H, W) -> (N, 64, H, W)
+        self.enc1_1 = CBR2d(in_channels=1, out_channels=64)
+        # (N, 64, H, W) -> (N, 64, H, W)
+        self.enc1_2 = CBR2d(in_channels=64, out_channels=64)
+        # (N, 64, H, W) -> (N, 64, H/2, W/2)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
 
+        # (N, 64, H/2, W/2) -> (N, 128, H/2, W/2)
+        self.enc2_1 = CBR2d(in_channels=64, out_channels=128)
+        # (N, 128, H/2, W/2) -> (N, 128, H/2, W/2)
+        self.enc2_2 = CBR2d(in_channels=128, out_channels=128)
+        # (N, 128, H/2, W/2) -> (N, 128, H/4, W/4)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-class FCNs(nn.Module):
-    def __init__(self, pretrained_net, num_classes):
-        """
-        * 모델 구조 정의
-        :param pretrained_net: 미리 학습된 backbone 네트워크 (VGG-16)
-        :param num_classes: 출력 클래스 개수 (image segmentation 시 분류해야 할 전체 label 의 개수)
-        """
+        # (N, 128, H/4, W/4) -> (N, 256, H/4, W/4)
+        self.enc3_1 = CBR2d(in_channels=128, out_channels=256)
+        # (N, 256, H/4, W/4) -> (N, 256, H/4, W/4)
+        self.enc3_2 = CBR2d(in_channels=256, out_channels=256)
+        # (N, 256, H/4, W/4) -> (N, 256, H/8, W/8)
+        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        super(FCNs, self).__init__()
+        # (N, 256, H/8, W/8) -> (N, 512, H/8, W/8)
+        self.enc4_1 = CBR2d(in_channels=256, out_channels=512)
+        # (N, 512, H/8, W/8) -> (N, 512, H/8, W/8)
+        self.enc4_2 = CBR2d(in_channels=512, out_channels=512)
+        # (N, 512, H/8, W/8) -> (N, 512, H/16, W/16)
+        self.pool4 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.num_classes = num_classes
+        # (N, 512, H/16, W/16) -> (N, 1024, H/16, W/16)
+        self.enc5_1 = CBR2d(in_channels=512, out_channels=1024)
 
-        self.relu = nn.ReLU(inplace=True)
+        # Expansive Path
+        # (N, 1024, H/16, W/16) -> (N, 512, H/16, W/16)
+        self.dec5_1 = CBR2d(in_channels=1024, out_channels=512)
 
-        # feature extractor
-        # (N, 3, 224, 224) -> (N, 512, 7, 7)
-        self.pretrained_net = pretrained_net
+        # (N, 512, H/16, W/16) -> (N, 512, H/8, W/8)
+        self.unpool4 = nn.ConvTranspose2d(in_channels=512, out_channels=512, kernel_size=2, stride=2, padding=0, bias=True)
+        # (N, 1024, H/8, W/8) -> (N, 512, H/8, W/8)
+        self.dec4_2 = CBR2d(in_channels=2 * 512, out_channels=512)
+        # (N, 512, H/8, W/8) -> (N, 256, H/8, W/8)
+        self.dec4_1 = CBR2d(in_channels=512, out_channels=256)
 
-        # (N, 512, 7, 7) -> (N, 512, 14, 14)
-        self.deconv1 = nn.ConvTranspose2d(in_channels=512, out_channels=512, kernel_size=3, stride=2, padding=1, output_padding=1, dilation=1)
-        self.bn1 = nn.BatchNorm2d(num_features=512)
-        # (N, 512, 14, 14) -> (N, 256, 28, 28)
-        self.deconv2 = nn.ConvTranspose2d(in_channels=512, out_channels=256, kernel_size=3, stride=2, padding=1, output_padding=1, dilation=1)
-        self.bn2 = nn.BatchNorm2d(num_features=256)
-        # (N, 256, 28, 28) -> (N, 128, 56, 56)
-        self.deconv3 = nn.ConvTranspose2d(in_channels=256, out_channels=128, kernel_size=3, stride=2, padding=1, output_padding=1, dilation=1)
-        self.bn3 = nn.BatchNorm2d(num_features=128)
-        # (N, 128, 56, 56) -> (N, 64, 112, 112)
-        self.deconv4 = nn.ConvTranspose2d(in_channels=128, out_channels=64, kernel_size=3, stride=2, padding=1, output_padding=1, dilation=1)
-        self.bn4 = nn.BatchNorm2d(num_features=64)
-        # (N, 64, 112, 112) -> (N, 32, 224, 224)
-        self.deconv5 = nn.ConvTranspose2d(in_channels=64, out_channels=32, kernel_size=3, stride=2, padding=1, output_padding=1, dilation=1)
-        self.bn5 = nn.BatchNorm2d(num_features=32)
+        # (N, 256, H/8, W/8) -> (N, 256, H/4, W/4)
+        self.unpool3 = nn.ConvTranspose2d(in_channels=256, out_channels=256, kernel_size=2, stride=2, padding=0, bias=True)
+        # (N, 512, H/4, W/4) -> (N, 256, H/4, W/4)
+        self.dec3_2 = CBR2d(in_channels=2 * 256, out_channels=256)
+        # (N, 256, H/4, W/4) -> (N, 128, H/4, W/4)
+        self.dec3_1 = CBR2d(in_channels=256, out_channels=128)
+
+        # (N, 128, H/4, W/4) -> (N, 128, H/2, W/2)
+        self.unpool2 = nn.ConvTranspose2d(in_channels=128, out_channels=128, kernel_size=2, stride=2, padding=0, bias=True)
+        # (N, 256, H/2, W/2) -> (N, 128, H/2, W/2)
+        self.dec2_2 = CBR2d(in_channels=2 * 128, out_channels=128)
+        # (N, 128, H/2, W/2) -> (N, 64, H/2, W/2)
+        self.dec2_1 = CBR2d(in_channels=128, out_channels=64)
+
+        # (N, 64, H/2, W/2) -> (N, 64, H, W)
+        self.unpool1 = nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=2, stride=2, padding=0, bias=True)
+        # (N, 128, H, W) -> (N, 64, H, W)
+        self.dec1_2 = CBR2d(in_channels=2 * 64, out_channels=64)
+        # (N, 64, H, W) -> (N, 64, H, W)
+        self.dec1_1 = CBR2d(in_channels=64, out_channels=64)
 
         # NIN
-        # (N, 32, 224, 224) -> (N, num_classes, 224, 224)
-        self.classifier = nn.Conv2d(in_channels=32, out_channels=num_classes, kernel_size=1)
+        # (N, 64, H, W) -> (N, num_classes (1), H, W)
+        self.fc = nn.Conv2d(in_channels=64, out_channels=1, kernel_size=1, stride=1, padding=0, bias=True)
 
     def forward(self, x):
         """
         * 순전파
-        :param x: 배치 개수 만큼의 입력. (N, 3, 224, 224)
-        :return: 배치 개수 만큼의 출력. (N, num_classes, 224, 224)
+        :param x: 배치 개수 만큼의 입력. (N, in_channels (1), H, W)
+        :return: 배치 개수 만큼의 출력. (N, num_classes (1), H, W)
         """
 
-        # Max pooling 단위 결과 모음 dict
-        output = self.pretrained_net(x)
+        # (N, in_channels (1), H, W) -> (N, 64, H, W)
+        enc1_1 = self.enc1_1(x)
+        # (N, 64, H, W) -> (N, 64, H, W)
+        enc1_2 = self.enc1_2(enc1_1)
+        # (N, 64, H, W) -> (N, 64, H/2, W/2)
+        pool1 = self.pool1(enc1_2)
 
-        # (N, 3, 224, 224) -> (N, 64, 112, 112)
-        x1 = output['x1']
-        # (N, 64, 112, 112) -> (N, 128, 56, 56)
-        x2 = output['x2']
-        # (N, 128, 56, 56) -> (N, 256, 28, 28)
-        x3 = output['x3']
-        # (N, 256, 28, 28) -> (N, 512, 14, 14)
-        x4 = output['x4']
-        # (N, 512, 14, 14) -> (N, 512, 7, 7)
-        x5 = output['x5']
+        # (N, 64, H/2, H/2) -> (N, 128, H/2, W/2)
+        enc2_1 = self.enc2_1(pool1)
+        # (N, 128, H/2, W/2) -> (N, 128, H/2, W/2)
+        enc2_2 = self.enc2_2(enc2_1)
+        # (N, 128, H/2, W/2) -> (N, 128, H/4, W/4)
+        pool2 = self.pool2(enc2_2)
 
-        # (N, 512, 7, 7) -> (N, 512, 14, 14)
-        score = x4 + self.bn1(self.relu(self.deconv1(x5)))
-        # (N, 512, 14, 14) -> (N, 256, 28, 28)
-        score = x3 + self.bn2(self.relu(self.deconv2(score)))
-        # (N, 256, 28, 28) -> (N, 128, 56, 56)
-        score = x2 + self.bn3(self.relu(self.deconv3(score)))
-        # (N, 128, 56, 56) -> (N, 64, 112, 112)
-        score = x1 + self.bn4(self.relu(self.deconv4(score)))
-        # (N, 64, 112, 112) -> (N, 32, 224, 224)
-        score = self.bn5(self.relu(self.deconv5(score)))
-        # (N, 32, 224, 224) -> (N, num_classes, 224, 224)
-        score = self.classifier(score)
+        # (N, 128, H/4, W/4) -> (N, 256, H/4, W/4)
+        enc3_1 = self.enc3_1(pool2)
+        # (N, 256, H/4, W/4) -> (N, 256, H/4, W/4)
+        enc3_2 = self.enc3_2(enc3_1)
+        # (N, 256, H/4, W/4) -> (N, 256, H/8, W/8)
+        pool3 = self.pool3(enc3_2)
 
-        return score
+        # (N, 256, H/8, W/8) -> (N, 512, H/8, W/8)
+        enc4_1 = self.enc4_1(pool3)
+        # (N, 512, H/8, W/8) -> (N, 512, H/8, W/8)
+        enc4_2 = self.enc4_2(enc4_1)
+        # (N, 512, H/8, W/8) -> (N, 512, H/16, W/16)
+        pool4 = self.pool4(enc4_2)
+
+        # (N, 512, H/16, W/16) -> (N, 1024, H/16, W/16)
+        enc5_1 = self.enc5_1(pool4)
+
+        # (N, 1024, H/16, W/16) -> (N, 512, H/16, W/16)
+        dec5_1 = self.dec5_1(enc5_1)
+
+        # (N, 512, H/16, W/16) -> (N, 512, H/8, W/8)
+        unpool4 = self.unpool4(dec5_1)
+        # unpool4 (N, 512, H/8, W/8) 에 enc4_2 (N, 512, H/8, W/8) concatenate 하여 cat4 (N, 1024, H/8, W/8) 만들기
+        cat4 = torch.cat(tensors=(unpool4, enc4_2), dim=1)
+        # (N, 1024, H/8, W/8) -> (N, 512, H/8, W/8)
+        dec4_2 = self.dec4_2(cat4)
+        # (N, 512, H/8, W/8) -> (N, 256, H/8, W/8)
+        dec4_1 = self.dec4_1(dec4_2)
+
+        # (N, 256, H/8, W/8) -> (N, 256, H/4, W/4)
+        unpool3 = self.unpool3(dec4_1)
+        # unpool3 (N, 256, H/4, W/4) 에 enc3_2 (N, 256, H/4, W/4) concatenate 하여 cat3 (N, 512, H/4, W/4) 만들기
+        cat3 = torch.cat(tensors=(unpool3, enc3_2), dim=1)
+        # (N, 512, H/4, W/4) -> (N, 256, H/4, W/4)
+        dec3_2 = self.dec3_2(cat3)
+        # (N, 256, H/4, W/4) -> (N, 128, H/4, W/4)
+        dec3_1 = self.dec3_1(dec3_2)
+
+        # (N, 128, H/4, W/4) -> (N, 128, H/2, W/2)
+        unpool2 = self.unpool2(dec3_1)
+        # unpool2 (N, 128, H/2, W/2) 에 enc2_2 (N, 128, H/2, W/2) concatenate 하여 cat2 (N, 256, H/2, W/2) 만들기
+        cat2 = torch.cat(tensors=(unpool2, enc2_2), dim=1)
+        # (N, 256, H/2, W/2) -> (N, 128, H/2, W/2)
+        dec2_2 = self.dec2_2(cat2)
+        # (N, 128, H/2, W/2) -> (N, 64, H/2, W/2)
+        dec2_1 = self.dec2_1(dec2_2)
+
+        # (N, 64, H/2, W/2) -> (N, 64, H, W)
+        unpool1 = self.unpool1(dec2_1)
+        # unpool1 (N, 64, H, W) 에 enc1_2 (N, 64, H, W) concatenate 하여 cat1 (N, 128, H, W) 만들기
+        cat1 = torch.cat(tensors=(unpool1, enc1_2), dim=1)
+        # (N, 128, H, W) -> (N, 64, H, W)
+        dec1_2 = self.dec1_2(cat1)
+        # (N, 64, H, W) -> (N, 64, H, W)
+        dec1_1 = self.dec1_1(dec1_2)
+
+        # (N, 64, H, W) -> (N, num_classes (1), H, W)
+        out = self.fc(dec1_1)
+
+        return out
