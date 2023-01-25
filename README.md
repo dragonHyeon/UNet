@@ -1,5 +1,5 @@
-# PyTorch FCN
-- 파이토치 Fully Convolutional Networks for Semantic Segmentation
+# PyTorch U-Net
+- 파이토치 U-Net: Convolutional Networks for Biomedical Image Segmentation
 ___
 ### 프로그램 실행 방법
 - 학습
@@ -16,7 +16,6 @@ ___
 ---
 ### 프로그램 구조
 - Main/run_train.py 및 Main/run_test.py 에서 디바이스, 모델, optimizer, dataloader, 손실 함수, metric 등 모두 선언 및 실행
-- 모델 선언은 DeepLearning/model.py 에서 정의한 VGGNet 을 backbone network 로 함께 불러와 선언하기
 ---
 ### 참조
 https://github.com/MV-CuttingEdgeAI/YHKim-DeepLearningStudy

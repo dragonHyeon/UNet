@@ -27,8 +27,8 @@ class UNet(nn.Module):
             return cbr
 
         # Contracting Path
-        # (N, in_channels (1), H, W) -> (N, 64, H, W)
-        self.enc1_1 = CBR2d(in_channels=1, out_channels=64)
+        # (N, in_channels (3), H, W) -> (N, 64, H, W)
+        self.enc1_1 = CBR2d(in_channels=3, out_channels=64)
         # (N, 64, H, W) -> (N, 64, H, W)
         self.enc1_2 = CBR2d(in_channels=64, out_channels=64)
         # (N, 64, H, W) -> (N, 64, H/2, W/2)
@@ -91,8 +91,8 @@ class UNet(nn.Module):
         self.dec1_1 = CBR2d(in_channels=64, out_channels=64)
 
         # NIN
-        # (N, 64, H, W) -> (N, num_classes (1), H, W)
-        self.fc = nn.Conv2d(in_channels=64, out_channels=1, kernel_size=1, stride=1, padding=0, bias=True)
+        # (N, 64, H, W) -> (N, num_classes (2), H, W)
+        self.fc = nn.Conv2d(in_channels=64, out_channels=2, kernel_size=1, stride=1, padding=0, bias=True)
 
     def forward(self, x):
         """
@@ -101,7 +101,7 @@ class UNet(nn.Module):
         :return: 배치 개수 만큼의 출력. (N, num_classes (1), H, W)
         """
 
-        # (N, in_channels (1), H, W) -> (N, 64, H, W)
+        # (N, in_channels (3), H, W) -> (N, 64, H, W)
         enc1_1 = self.enc1_1(x)
         # (N, 64, H, W) -> (N, 64, H, W)
         enc1_2 = self.enc1_2(enc1_1)
@@ -171,7 +171,7 @@ class UNet(nn.Module):
         # (N, 64, H, W) -> (N, 64, H, W)
         dec1_1 = self.dec1_1(dec1_2)
 
-        # (N, 64, H, W) -> (N, num_classes (1), H, W)
+        # (N, 64, H, W) -> (N, num_classes (2), H, W)
         out = self.fc(dec1_1)
 
         return out
