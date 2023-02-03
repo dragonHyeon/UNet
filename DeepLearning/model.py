@@ -97,8 +97,8 @@ class UNet(nn.Module):
     def forward(self, x):
         """
         * 순전파
-        :param x: 배치 개수 만큼의 입력. (N, in_channels (1), H, W)
-        :return: 배치 개수 만큼의 출력. (N, num_classes (1), H, W)
+        :param x: 배치 개수 만큼의 입력. (N, in_channels (3), H, W)
+        :return: 배치 개수 만큼의 출력. (N, num_classes (2), H, W)
         """
 
         # (N, in_channels (3), H, W) -> (N, 64, H, W)
