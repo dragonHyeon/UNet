@@ -12,7 +12,7 @@ class UNet(nn.Module):
 
         def CBR2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=True):
             """
-            * (Conv + BatchNorm + ReLu) 블록
+            * (Conv + BatchNorm + ReLU) 블록
             """
 
             # CBR 블록 담을 리스트
