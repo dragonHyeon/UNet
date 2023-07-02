@@ -3,9 +3,11 @@ import torch.nn as nn
 
 
 class UNet(nn.Module):
-    def __init__(self):
+    def __init__(self, in_channels=3, num_classes=2):
         """
         * 모델 구조 정의
+        :param in_channels: in_channels 수
+        :param num_classes: 출력 클래스 개수
         """
 
         super(UNet, self).__init__()
@@ -28,7 +30,7 @@ class UNet(nn.Module):
 
         # Contracting Path
         # (N, in_channels (3), H, W) -> (N, 64, H, W)
-        self.enc1_1 = CBR2d(in_channels=3, out_channels=64)
+        self.enc1_1 = CBR2d(in_channels=in_channels, out_channels=64)
         # (N, 64, H, W) -> (N, 64, H, W)
         self.enc1_2 = CBR2d(in_channels=64, out_channels=64)
         # (N, 64, H, W) -> (N, 64, H/2, W/2)
@@ -92,7 +94,7 @@ class UNet(nn.Module):
 
         # NIN
         # (N, 64, H, W) -> (N, num_classes (2), H, W)
-        self.fc = nn.Conv2d(in_channels=64, out_channels=2, kernel_size=1, stride=1, padding=0, bias=True)
+        self.fc = nn.Conv2d(in_channels=64, out_channels=num_classes, kernel_size=1, stride=1, padding=0, bias=True)
 
     def forward(self, x):
         """
